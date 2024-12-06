@@ -29,6 +29,7 @@ from functools import partial
 import albumentations as A
 import bezier
 
+from transformers import AutoImageProcessor
 
 def bbox_process(bbox):
     x_min = int(bbox[0])
@@ -66,6 +67,7 @@ class OpenImageDataset(data.Dataset):
         self.args=args
         self.arbitrary_mask_percent=arbitrary_mask_percent
         self.kernel = np.ones((1, 1), np.uint8)
+        self.preprocessor = AutoImageProcessor.from_pretrained('jinaai/jina-clip-v2', trust_remote_code=True)
         self.random_trans=A.Compose([
             A.Resize(height=224,width=224),
             A.HorizontalFlip(p=0.5),
@@ -84,7 +86,8 @@ class OpenImageDataset(data.Dataset):
         ]
         self.bbox_path_list=[]
         if state == "train":
-            dir_name_list=['0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f']
+            # dir_name_list=['0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f']
+            dir_name_list=['0']
             for dir_name in dir_name_list:
                 bbox_dir=os.path.join(args['dataset_dir'],'bbox','train_'+dir_name)
                 per_dir_file_list=os.listdir(bbox_dir)
@@ -140,6 +143,13 @@ class OpenImageDataset(data.Dataset):
         img_p_np=cv2.imread(img_path)
         img_p_np = cv2.cvtColor(img_p_np, cv2.COLOR_BGR2RGB)
         ref_image_tensor=img_p_np[bbox_pad[1]:bbox_pad[3],bbox_pad[0]:bbox_pad[2],:]
+        # NOTE: original code
+        ref_image_tensor=self.random_trans(image=ref_image_tensor)
+        # NOTE: jina-clip
+        # ref_image_tensor=self.jina_trans(image=ref_image_tensor)
+        # convert ref_image_tensor to PIL image
+        pil_ref_image_tensor=Image.fromarray(ref_image_tensor["image"])
+        jina_image = self.preprocessor(pil_ref_image_tensor)
         ref_image_tensor=self.random_trans(image=ref_image_tensor)
         ref_image_tensor=Image.fromarray(ref_image_tensor["image"])
         ref_image_tensor=get_tensor_clip()(ref_image_tensor)
@@ -249,7 +259,7 @@ class OpenImageDataset(data.Dataset):
         mask_tensor_resize=T.Resize([self.args['image_size'],self.args['image_size']])(mask_tensor_cropped)
         inpaint_tensor_resize=image_tensor_resize*mask_tensor_resize
 
-        return {"GT":image_tensor_resize,"inpaint_image":inpaint_tensor_resize,"inpaint_mask":mask_tensor_resize,"ref_imgs":ref_image_tensor}
+        return {"GT":image_tensor_resize,"inpaint_image":inpaint_tensor_resize,"inpaint_mask":mask_tensor_resize,"ref_imgs":ref_image_tensor, "jina_image":jina_image, "bbox":bbox, "bbox_pad":bbox_pad, "img_path":img_path}
 
 
 

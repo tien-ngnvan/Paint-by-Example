@@ -21,7 +21,7 @@ from ldm.data.base import Txt2ImgIterableBaseDataset
 from ldm.util import instantiate_from_config
 import socket
 from pytorch_lightning.plugins.environments import ClusterEnvironment,SLURMEnvironment
-
+os.system("wandb login --relogin 138c38699b36fb0223ca0f94cde30c6d531895ca")
 def get_parser(**parser_kwargs):
     def str2bool(v):
         if isinstance(v, bool):
@@ -536,7 +536,8 @@ if __name__ == "__main__":
             }
         },
     }
-    default_logger_cfg = default_logger_cfgs["testtube"]
+    # default_logger_cfg = default_logger_cfgs["testtube"]
+    default_logger_cfg = default_logger_cfgs["wandb"]
     if "logger" in lightning_config:
         logger_cfg = lightning_config.logger
     else:

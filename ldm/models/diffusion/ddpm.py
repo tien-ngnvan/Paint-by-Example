@@ -339,6 +339,7 @@ class DDPM(pl.LightningModule):
             mask = batch['inpaint_mask']
             inpaint = batch['inpaint_image']
             reference = batch['ref_imgs']
+            jina_image = batch['jina_image']
         else:
             x = batch[k]
         if len(x.shape) == 3:
@@ -348,7 +349,8 @@ class DDPM(pl.LightningModule):
         mask = mask.to(memory_format=torch.contiguous_format).float()
         inpaint = inpaint.to(memory_format=torch.contiguous_format).float()
         reference = reference.to(memory_format=torch.contiguous_format).float()
-        return x,inpaint,mask,reference
+        jina_image = jina_image.to(memory_format=torch.contiguous_format)
+        return x,inpaint,mask,reference,jina_image
 
     def shared_step(self, batch):
         x = self.get_input(batch, self.first_stage_key)
@@ -535,10 +537,13 @@ class LatentDiffusion(DDPM):
                 # self.be_unconditional = True
             else:
                 model = instantiate_from_config(config)
-                self.cond_stage_model = model.eval()
-                self.cond_stage_model.train = disabled_train
-                for param in self.cond_stage_model.parameters():
-                    param.requires_grad = False
+                try:
+                    self.cond_stage_model = model.eval()
+                    self.cond_stage_model.train = disabled_train
+                    for param in self.cond_stage_model.parameters():
+                        param.requires_grad = False
+                except:
+                    self.cond_stage_model = model
         else:
             assert config != '__is_first_stage__'
             assert config != '__is_unconditional__'
@@ -674,19 +679,22 @@ class LatentDiffusion(DDPM):
     def get_input(self, batch, k, return_first_stage_outputs=False, force_c_encode=False,
                   cond_key=None, return_original_cond=False, bs=None,get_mask=False,get_reference=False):
         
-        x,inpaint,mask,reference = super().get_input(batch, k)
+        x,inpaint,mask,reference,jina_image = super().get_input(batch, k)
         if bs is not None:
             x = x[:bs]
             inpaint = inpaint[:bs]
             mask = mask[:bs]
             reference = reference[:bs]
+            jina_image = jina_image[:bs]
         x = x.to(self.device)
         encoder_posterior = self.encode_first_stage(x)
         z = self.get_first_stage_encoding(encoder_posterior).detach()
         encoder_posterior_inpaint = self.encode_first_stage(inpaint)
         z_inpaint = self.get_first_stage_encoding(encoder_posterior_inpaint).detach()
         mask_resize = Resize([z.shape[-1],z.shape[-1]])(mask)
-        z_new = torch.cat((z,z_inpaint,mask_resize),dim=1)
+        # z_new = torch.cat((z,z_inpaint,mask_resize),dim=1)
+        # NOTE: change 9 channels to 4 channels
+        z_new = z
 
         if self.model.conditioning_key is not None:
             if cond_key is None:
@@ -695,7 +703,8 @@ class LatentDiffusion(DDPM):
                 if cond_key in ['txt','caption', 'coordinates_bbox']:
                     xc = batch[cond_key]
                 elif cond_key == 'image':
-                    xc = reference
+                    # xc = reference
+                    xc = jina_image # use jina image as conditioning
                 elif cond_key == 'class_label':
                     xc = batch
                 else:
@@ -708,7 +717,7 @@ class LatentDiffusion(DDPM):
                     c = self.get_learned_conditioning(xc)
                 else:
                     c = self.get_learned_conditioning(xc.to(self.device))
-                    c = self.proj_out(c)
+                    c = self.proj_out(c.to(self.proj_out.weight.device, dtype=torch.float32))
                     c = c.float()
             else:
                 c = xc
